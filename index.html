@@ -206,6 +206,15 @@ body.modal-open{overflow:hidden;}
 .expiry-modal-icon{font-size:34px;margin-bottom:10px;}
 .expiry-modal-title{font-size:18px;font-weight:800;color:#b91c1c;margin-bottom:10px;}
 .expiry-modal-msg{font-size:13px;color:#334155;line-height:1.85;white-space:pre-wrap;word-break:keep-all;}
+.admin-field-label{font-size:11px;color:var(--muted);font-weight:600;margin-bottom:4px;display:block;}
+.admin-input{width:100%;border:1px solid var(--border);padding:9px 11px;font-size:14px;font-family:'Noto Sans KR',sans-serif;border-radius:8px;outline:none;background:var(--paper);margin-bottom:10px;color:var(--text);}
+.admin-input:focus{border-color:var(--navy);}
+.admin-error{font-size:12px;color:#c0392b;margin:-4px 0 10px;display:none;}
+.admin-error.show{display:block;}
+.admin-note{font-size:11px;color:#5b6b7f;line-height:1.7;margin-top:2px;}
+.admin-btn-ghost{border:1px solid #cbd5e1;background:#fff;color:#334155;font-size:13px;font-weight:700;padding:11px 18px;border-radius:10px;cursor:pointer;font-family:'Noto Sans KR',sans-serif;}
+.admin-btn-ghost:hover{background:#f1f5f9;}
+.admin-modal-actions{display:flex;justify-content:flex-end;gap:8px;padding:0 22px 22px;background:#fff;}
 .mob-tab-bar{display:none;}
 @media(max-width:680px){
   html,body{height:100%;overflow:hidden;}
@@ -277,6 +286,7 @@ body.modal-open{overflow:hidden;}
         <button class="btn" onclick="triggerLoadWorkState()">저장 불러오기</button>
         <button class="btn" onclick="resetAll()">초기화</button>
         <button class="btn" onclick="copyText()">전문 복사</button>
+        <button class="btn" onclick="openAdminModal()">⚙ 관리자</button>
       </div>
     </div>
     <div class="legend">
@@ -321,6 +331,32 @@ body.modal-open{overflow:hidden;}
     <p class="expiry-modal-msg" id="expiryLockMessage"></p>
   </div>
 </div>
+<div class="legal-modal-backdrop" id="adminModal" role="dialog" aria-modal="true" aria-labelledby="adminModalTitle" hidden>
+  <div class="legal-modal" style="width:min(420px,100%);">
+    <div class="legal-modal-head">
+      <div class="legal-modal-kicker">⚙ 관리자 전용</div>
+      <div class="legal-modal-title" id="adminModalTitle">사용 기간 설정</div>
+    </div>
+    <div class="legal-modal-body">
+      <div id="adminLoginStep">
+        <label class="admin-field-label" for="adminPasswordInput">관리자 암호</label>
+        <input type="password" id="adminPasswordInput" class="admin-input" placeholder="암호 입력" autocomplete="off" />
+        <p class="admin-error" id="adminLoginError">암호가 올바르지 않습니다.</p>
+        <p class="admin-note">암호를 아는 관리자만 사용 만료일을 설정하고, 그 설정이 반영된 HTML 파일을 만들 수 있습니다.</p>
+      </div>
+      <div id="adminSettingsStep" style="display:none;">
+        <p class="admin-note" style="margin-bottom:10px;">현재 이 파일의 만료일: <b id="adminCurrentExpiry"></b></p>
+        <label class="admin-field-label" for="adminExpiryInput">새 만료일</label>
+        <input type="date" id="adminExpiryInput" class="admin-input" />
+        <p class="admin-note">저장을 누르면 이 만료일이 반영된 새 HTML 파일이 컴퓨터로 다운로드됩니다. 그 파일을 그대로 상대방에게 보내면, 그 파일은 설정한 날짜가 지난 뒤부터 사용할 수 없게 됩니다.</p>
+      </div>
+    </div>
+    <div class="admin-modal-actions">
+      <button type="button" class="admin-btn-ghost" onclick="closeAdminModal()">닫기</button>
+      <button type="button" class="legal-modal-confirm" id="adminActionBtn">확인</button>
+    </div>
+  </div>
+</div>
 
 <script>
 const HANG=['①','②','③','④','⑤','⑥','⑦','⑧','⑨','⑩'];
@@ -345,6 +381,90 @@ function showExpiryLock(){
   if(msg) msg.textContent='사용 만료일('+APP_EXPIRY_DATE+')이 지나 이 프로그램을 더 이상 사용할 수 없습니다.\n계속 사용을 원하시면 담당자에게 문의해 주세요.';
   const modal=document.getElementById('expiryLockModal');
   if(modal) modal.hidden=false;
+}
+
+/* ── 관리자 설정 (배포 전 아래 암호를 변경하세요) ──
+   관리자만 이 암호로 만료일을 설정하고, 그 설정이 반영된 HTML 파일을 내려받을 수 있습니다. */
+const ADMIN_PASSWORD='admin1234';
+let adminAuthed=false;
+let originalSourcePromise=null;
+function getOriginalSource(){
+  if(!originalSourcePromise){
+    originalSourcePromise=fetch(location.href,{cache:'no-store'}).then(res=>{
+      if(!res.ok) throw new Error('현재 페이지 원본을 불러오지 못했습니다.');
+      return res.text();
+    });
+  }
+  return originalSourcePromise;
+}
+function openAdminModal(){
+  const modal=document.getElementById('adminModal');
+  if(!modal) return;
+  document.getElementById('adminLoginStep').style.display=adminAuthed?'none':'block';
+  document.getElementById('adminSettingsStep').style.display=adminAuthed?'block':'none';
+  document.getElementById('adminActionBtn').textContent=adminAuthed?'HTML 파일로 저장':'확인';
+  if(adminAuthed){
+    document.getElementById('adminCurrentExpiry').textContent=APP_EXPIRY_DATE;
+    const dateInput=document.getElementById('adminExpiryInput');
+    if(dateInput && !dateInput.value) dateInput.value=APP_EXPIRY_DATE;
+  } else {
+    const pw=document.getElementById('adminPasswordInput');
+    if(pw) pw.value='';
+    document.getElementById('adminLoginError').classList.remove('show');
+  }
+  modal.hidden=false;
+  document.body.classList.add('modal-open');
+  setTimeout(()=>{
+    try{ (adminAuthed?document.getElementById('adminExpiryInput'):document.getElementById('adminPasswordInput')).focus(); }catch(e){}
+  },0);
+}
+function closeAdminModal(){
+  const modal=document.getElementById('adminModal');
+  if(modal) modal.hidden=true;
+  document.body.classList.remove('modal-open');
+}
+function exportHtmlWithExpiry(newDate){
+  const btn=document.getElementById('adminActionBtn');
+  const origLabel=btn.textContent;
+  btn.textContent='파일 생성 중...';
+  btn.disabled=true;
+  getOriginalSource().then(src=>{
+    const marker=/const APP_EXPIRY_DATE=(['"]).*?\1;/;
+    if(!marker.test(src)) throw new Error('만료일 설정 위치를 찾지 못했습니다.');
+    const updated=src.replace(marker,`const APP_EXPIRY_DATE='${newDate}';`);
+    const blob=new Blob([updated],{type:'text/html'});
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement('a');
+    const bldName=(document.getElementById('building').value||'관리규약생성기').trim().replace(/[\\/:*?"<>|]/g,'');
+    a.href=url;
+    a.download=`${bldName}_${newDate}.html`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    closeAdminModal();
+    showToast('만료일 '+newDate+'로 설정된 HTML 파일이 다운로드되었습니다.');
+  }).catch(err=>{
+    alert('파일을 만들지 못했습니다. 이 페이지가 웹 서버(https) 주소로 열려 있는지 확인해주세요.\n'+err.message);
+  }).finally(()=>{
+    btn.textContent=origLabel;
+    btn.disabled=false;
+  });
+}
+function handleAdminAction(){
+  if(!adminAuthed){
+    const pw=(document.getElementById('adminPasswordInput').value||'');
+    if(pw===ADMIN_PASSWORD){
+      adminAuthed=true;
+      openAdminModal();
+    } else {
+      document.getElementById('adminLoginError').classList.add('show');
+    }
+    return;
+  }
+  const newDate=document.getElementById('adminExpiryInput').value;
+  if(!newDate){ alert('만료일을 선택해주세요.'); return; }
+  exportHtmlWithExpiry(newDate);
 }
 
 function splitItems(text){
@@ -509,7 +629,7 @@ const WORK_STATE_VERSION='2026-05-28.v1';
 const SECTION_ARTICLES={
   s1:['제52조'], s2:['제63조'], s3:['제64조'], s4:['제57조'], s5:['제43조'], s6:['제44조'],
   s7:['제40조'], s8:['제41조'], s9:['제41조'], s10:['제42조'], s11:['제87조'], s12:['제84조'],
-  s13:['제38조'], s14:['제30조'], s15:['제34조'], s16:['제52조'], s17:['제64조'], s18:[]
+  s13:['제38조'], s14:['제30조'], s15:['제34조'], s16:['제52조'], s17:['제64조'], s18:['제34조']
 };
 let suspendArticleOverrides=false;
 let suspendChapterInsertions=false;
@@ -957,8 +1077,8 @@ function syncSharedArticle52(text){
     ? '② 관리인의 임기는 1년이며, 연임하거나 중임할 수 있다.'
     : '② 관리인의 임기는 2년이며, 연임하거나 중임할 수 있다.';
   const next3 = g('s16')==='s16_b'
-    ? '③ 관리인은 관리위원, 감사, 선거관리위원을 겸직할 수 있다.'
-    : '③ 관리인은 관리위원, 감사, 선거관리위원을 겸직할 수 없다.';
+    ? (g('s15')==='s15_b' ? '③ 관리인은 관리위원, 감사를 겸직할 수 있다.' : '③ 관리인은 관리위원, 감사, 선거관리위원을 겸직할 수 있다.')
+    : (g('s15')==='s15_b' ? '③ 관리인은 관리위원, 감사를 겸직할 수 없다.' : '③ 관리인은 관리위원, 감사, 선거관리위원을 겸직할 수 없다.');
   text=replaceManagedExactLine(text, [
     '① 관리인은 관리위원회의 결의로 선임되거나 해임된다.',
     '① 관리인은 관리단집회의 결의로 선임되거나 해임된다.'
@@ -969,7 +1089,9 @@ function syncSharedArticle52(text){
   ], next2);
   text=replaceManagedExactLine(text, [
     '③ 관리인은 관리위원, 감사, 선거관리위원을 겸직할 수 있다.',
-    '③ 관리인은 관리위원, 감사, 선거관리위원을 겸직할 수 없다.'
+    '③ 관리인은 관리위원, 감사, 선거관리위원을 겸직할 수 없다.',
+    '③ 관리인은 관리위원, 감사를 겸직할 수 있다.',
+    '③ 관리인은 관리위원, 감사를 겸직할 수 없다.'
   ], next3);
   return text;
 }
@@ -979,17 +1101,24 @@ function syncSharedArticle64(text){
     : g('s3')==='s3_c'
     ? '① 관리위원은 직접 입주하여 6개월 이상 거주하고 있는 구분소유자 중에서 선출한다.'
     : '① 관리위원의 자격에 관하여는 제54조를 준용한다.';
+  const next2 = '② 관리위원은 '+(g('s15')==='s15_b' ? '관리위원회' : '선거관리위원회')+'의 관리 하에 구분소유자들의 직접투표로 선출한다.';
   const next4 = g('s17')==='s17_b'
-    ? '④ 관리위원은 관리인, 부관리인, 감사 및 선거관리위원회 위원을 겸직할 수 있다.'
-    : '④ 관리위원은 관리인, 부관리인, 감사 및 선거관리위원회 위원을 겸직할 수 없다.';
+    ? (g('s15')==='s15_b' ? '④ 관리위원은 관리인, 부관리인 및 감사를 겸직할 수 있다.' : '④ 관리위원은 관리인, 부관리인, 감사 및 선거관리위원회 위원을 겸직할 수 있다.')
+    : (g('s15')==='s15_b' ? '④ 관리위원은 관리인, 부관리인 및 감사를 겸직할 수 없다.' : '④ 관리위원은 관리인, 부관리인, 감사 및 선거관리위원회 위원을 겸직할 수 없다.');
   text=replaceManagedExactLine(text, [
     '① 관리위원은 직접 입주하여 거주하는 구분소유자 중에서 선출한다.',
     '① 관리위원은 직접 입주하여 6개월 이상 거주하고 있는 구분소유자 중에서 선출한다.',
     '① 관리위원의 자격에 관하여는 제54조를 준용한다.'
   ], next1);
   text=replaceManagedExactLine(text, [
+    '② 관리위원은 선거관리위원회의 관리 하에 구분소유자들의 직접투표로 선출한다.',
+    '② 관리위원은 관리위원회의 관리 하에 구분소유자들의 직접투표로 선출한다.'
+  ], next2);
+  text=replaceManagedExactLine(text, [
     '④ 관리위원은 관리인, 부관리인, 감사 및 선거관리위원회 위원을 겸직할 수 있다.',
-    '④ 관리위원은 관리인, 부관리인, 감사 및 선거관리위원회 위원을 겸직할 수 없다.'
+    '④ 관리위원은 관리인, 부관리인, 감사 및 선거관리위원회 위원을 겸직할 수 없다.',
+    '④ 관리위원은 관리인, 부관리인 및 감사를 겸직할 수 있다.',
+    '④ 관리위원은 관리인, 부관리인 및 감사를 겸직할 수 없다.'
   ], next4);
   return text;
 }
@@ -1027,8 +1156,12 @@ const SHARED_ARTICLE_SYNC_HANDLERS={
   '제52조': syncSharedArticle52,
   '제64조': syncSharedArticle64
 };
+/* 어떤 항목이 바뀌었을 때 어떤 조문의 '직접수정' 내용을 함께 갱신해야 하는지 (SECTION_ARTICLES는 상자를 어디에 보여줄지만 결정하므로 별도 관리) */
+const ARTICLE_SYNC_TRIGGERS={
+  s15:['제34조','제52조','제64조'], s18:['제34조']
+};
 function syncManagedSharedOverride(sec){
-  const managed=(SECTION_ARTICLES[sec]||[]);
+  const managed=ARTICLE_SYNC_TRIGGERS[sec]||(SECTION_ARTICLES[sec]||[]);
   managed.forEach(key=>{
     if(!articleDirty[key] || articleOverrides[key]===undefined) return;
     const handler=SHARED_ARTICLE_SYNC_HANDLERS[key];
@@ -1313,6 +1446,11 @@ function renderArticleEditors(){
   SECTIONS.forEach(sec=>{
     const slot=document.getElementById('section-article-'+sec.id);
     if(!slot) return;
+    if(sec.id==='s18'){
+      // 제34조는 15번 카드에서만 수정 상자를 보여준다 (18번도 같은 조문을 공유하지만 중복 표시 방지).
+      slot.innerHTML='';
+      return;
+    }
     const keys=(SECTION_ARTICLES[sec.id]||[]).filter((key,idx,arr)=>arr.indexOf(key)===idx);
     if(!keys.length){
       slot.innerHTML='';
@@ -1388,8 +1526,8 @@ function buildKyuryak(){
     ? '② 관리인의 임기는 1년이며, 연임하거나 중임할 수 있다.'
     : '② 관리인의 임기는 2년이며, 연임하거나 중임할 수 있다.';
   const b52_3 = g('s16')==='s16_b'
-    ? '③ 관리인은 관리위원, 감사, 선거관리위원을 겸직할 수 있다.'
-    : '③ 관리인은 관리위원, 감사, 선거관리위원을 겸직할 수 없다.';
+    ? (g('s15')==='s15_b' ? '③ 관리인은 관리위원, 감사를 겸직할 수 있다.' : '③ 관리인은 관리위원, 감사, 선거관리위원을 겸직할 수 있다.')
+    : (g('s15')==='s15_b' ? '③ 관리인은 관리위원, 감사를 겸직할 수 없다.' : '③ 관리인은 관리위원, 감사, 선거관리위원을 겸직할 수 없다.');
   const b52_base = b52_sel+'\n'+b52_term+'\n'+b52_3;
   const a52 = s1==='custom' ? applyCustom('s1', b52_base) : b52_base;
 
@@ -1408,10 +1546,11 @@ function buildKyuryak(){
     : '① 관리위원의 자격에 관하여는 제54조를 준용한다.';
   // b64_겸직: s17 선택에 따라 겸직 조항 결정 (템플릿에서 별도 표시)
   const b64_겸직 = g('s17')==='s17_b'
-    ? '④ 관리위원은 관리인, 부관리인, 감사 및 선거관리위원회 위원을 겸직할 수 있다.'
-    : '④ 관리위원은 관리인, 부관리인, 감사 및 선거관리위원회 위원을 겸직할 수 없다.';
+    ? (g('s15')==='s15_b' ? '④ 관리위원은 관리인, 부관리인 및 감사를 겸직할 수 있다.' : '④ 관리위원은 관리인, 부관리인, 감사 및 선거관리위원회 위원을 겸직할 수 있다.')
+    : (g('s15')==='s15_b' ? '④ 관리위원은 관리인, 부관리인 및 감사를 겸직할 수 없다.' : '④ 관리위원은 관리인, 부관리인, 감사 및 선거관리위원회 위원을 겸직할 수 없다.');
   // b64_base: 자격요건만 포함 (겸직조항 제외 → 템플릿에서 별도 마커로 표시)
-  const b64_base = b64_1+'\n② 관리위원은 선거관리위원회의 관리 하에 구분소유자들의 직접투표로 선출한다.\n③ 다음 각 호의 어느 하나에 해당하는 사람은 관리위원이 될 수 없다.\n    1. 피성년후견인 또는 피한정후견인\n    2. 파산선고를 받고 복권되지 아니한 자\n    3. 금고 이상의 실형을 선고받고 그 집행이 끝나거나 면제된 날부터 3년이 지나지 아니한 자';
+  const b64_선출주체 = g('s15')==='s15_b' ? '관리위원회' : '선거관리위원회';
+  const b64_base = b64_1+'\n② 관리위원은 '+b64_선출주체+'의 관리 하에 구분소유자들의 직접투표로 선출한다.\n③ 다음 각 호의 어느 하나에 해당하는 사람은 관리위원이 될 수 없다.\n    1. 피성년후견인 또는 피한정후견인\n    2. 파산선고를 받고 복권되지 아니한 자\n    3. 금고 이상의 실형을 선고받고 그 집행이 끝나거나 면제된 날부터 3년이 지나지 아니한 자';
   const a64 = s3==='custom' ? applyCustom('s3', b64_base) : b64_base;
 
   /* s4 - 관리인 단독 집행 한도 (제57조③) */
@@ -1531,6 +1670,13 @@ function buildKyuryak(){
     : '① 관리단은 관리단집회와 관리인 이외에 다음 각 호의 기관을 둘 수 있다.\n    1. 관리위원회\n    2. 감사\n    3. 선거관리위원회';
   const _b34_base = _b34_orgs+'\n② 관리인, 부관리인, 관리위원, 감사를 관리단의 임원으로 한다.';
   let a34 = s15==='custom' ? applyCustom('s15', _b34_base) : _b34_base;
+
+  /* s15_b - 선거관리위원회를 두지 않는 경우, 제8장(제70조~제74조)은 조문번호를 유지한 채 삭제 처리한다.
+     (뒤 조문들의 번호 참조가 깨지지 않도록 전체 재넘버링은 하지 않는다.) */
+  const _chapter8Title = s15==='s15_b' ? '제8장 선거관리위원회 (두지 않음)' : '제8장 선거관리위원회';
+  const _chapter8Body = s15==='s15_b'
+    ? '제70조(선거관리위원회 구성) 삭제 <선거관리위원회를 두지 않으며, 관리위원회가 그 업무를 수행함>\n\n제71조(임기 및 자격상실 등) 삭제\n\n제72조(업무) 삭제\n\n제73조(운영 등) 삭제\n\n제74조(선거관리위원의 해임 등) 삭제'
+    : '제70조(선거관리위원회 구성) ① 선거관리위원회는 구분소유자 중에서 선출된 3인 이상 7인 이내의 위원으로 구성한다.\n② 선거관리위원회의 위원은 다음 각 호의 자 중 관리위원회의 결의로 선출한다.\n    1. 관리인이 추천한 자\n    2. 관리위원 3분의 1 이상이 추천한 자\n    3. 구분소유자의 20분의 1 이상(최소 5인 이상)이 추천한 자\n③ 제2항제2호 또는 제3호에 따른 추천권자가 관리인으로부터 선거관리위원 추천 통보를 받은 날부터 7일 이내에 추천을 하지 않거나 추천한 사람이 선거관리위원 정원의 2배를 초과하지 않은 때에는 관리인은 구분소유자등 중에서 희망하는 자를 공개모집하여 추천할 수 있다.\n④ 제2항에도 불구하고 선거관리위원회가 구성되지 않은 경우에는 시장·군수 또는 구청장은 구분소유자 중에서 학식과 사회경험이 풍부한 자를 위원으로 위촉할 수 있다.\n⑤ 위원장은 선거관리위원회 위원 중에서 위원들의 투표로 선출한다.\n\n제71조(임기 및 자격상실 등) ① 선거관리위원회 위원의 임기는 선출 또는 위촉받은 날부터 2년으로 하되 연임할 수 있으며, 위원장의 임기는 그 위원의 임기가 만료되는 날까지로 한다.\n② 선거관리위원은 구분소유자 지위를 상실한 때 그 자격을 상실한다.\n③ 다음 각 호의 어느 하나에 해당하는 사람은 선거관리위원회 위원이 될 수 없다.\n    1. 제54조 각 호의 어느 하나에 해당하는 사람\n    2. 관리인, 부관리인, 관리위원 및 감사 본인이나 그 배우자, 직계존비속\n④ 선거관리위원회 위원은 관리인, 부관리인, 관리위원 및 감사를 겸직할 수 없다.\n\n제72조(업무) 선거관리위원회는 다음 각 호의 업무를 수행한다.\n    1. 선거관리규정의 제정·개정. 다만 관리위원회의 승인을 받아야 한다.\n    2. 관리인, 부관리인, 관리위원회 위원장, 관리위원 및 감사의 선출 및 해임에 관한 선거관리\n    3. 관리인, 부관리인, 관리위원회 위원장, 관리위원 및 감사의 법 또는 규약에서 정한 결격사유 유무 확인\n    4. 관리단집회의 결의를 투표의 방식으로 하는 경우 그 투·개표업무\n    5. 당선확인 및 당선증 교부\n    6. 관리인, 부관리인, 관리위원회 위원장, 관리위원 및 감사의 사퇴 접수·처리\n    7. 그 밖에 선거관리에 관한 업무\n\n제73조(운영 등) ① 위원장은 선거관리위원회를 대표하고, 그 업무를 총괄한다.\n② 위원장이 부득이한 사유로 직무를 수행할 수 없는 경우에는 위원 중 과반수 결의로 그 직무를 대행할 자를 선출한다.\n③ 위원이 궐위된 경우에는 60일 이내에 다시 선출 또는 위촉한다. 보궐위원의 임기는 전임자의 잔여임기로 한다.\n④ 위원장은 선거관리위원회의 회의에 관하여 회의록을 작성하고, 위원장 및 위원 2명 이상이 서명날인 한 후 관리인이 보관하도록 하여야 한다.\n⑤ 이해관계인은 관리인에게 서면으로 선거관리위원회 의사록의 열람을 청구하거나 자기 비용으로 등본의 발급을 청구할 수 있다.\n\n제74조(선거관리위원의 해임 등) ① 선거관리위원이 직무를 유기하거나 법령 및 규약을 위반한 경우, 구분소유자 10분의 1 이상이 발의하고 관리위원회의 결의로 해임할 수 있다.\n② 위원장은 정당한 사유 없이 3회 연속하여 회의에 출석하지 아니한 자를 해임할 수 있다.';
 
   /* s14 - 공용부분 변경 공개경쟁 입찰 기준금액 (제30조④) */
   const s14=g('s14');
@@ -1964,42 +2110,10 @@ ${selArticle(['s15','s18'],'제34조')}제34조(기관 및 임원) ${_a34_render
 제69조(관리위원회 회의규칙) 관리위원회는 효율적인 회의 진행을 위하여 의사진행, 방청, 의견진술 등에 관한 회의규칙을 정할 수 있다.
 
 ════════════════════════════════════════
-제8장 선거관리위원회
+${_chapter8Title}
 ════════════════════════════════════════
 
-제70조(선거관리위원회 구성) ① 선거관리위원회는 구분소유자 중에서 선출된 3인 이상 7인 이내의 위원으로 구성한다.
-② 선거관리위원회의 위원은 다음 각 호의 자 중 관리위원회의 결의로 선출한다.
-    1. 관리인이 추천한 자
-    2. 관리위원 3분의 1 이상이 추천한 자
-    3. 구분소유자의 20분의 1 이상(최소 5인 이상)이 추천한 자
-③ 제2항제2호 또는 제3호에 따른 추천권자가 관리인으로부터 선거관리위원 추천 통보를 받은 날부터 7일 이내에 추천을 하지 않거나 추천한 사람이 선거관리위원 정원의 2배를 초과하지 않은 때에는 관리인은 구분소유자등 중에서 희망하는 자를 공개모집하여 추천할 수 있다.
-④ 제2항에도 불구하고 선거관리위원회가 구성되지 않은 경우에는 시장·군수 또는 구청장은 구분소유자 중에서 학식과 사회경험이 풍부한 자를 위원으로 위촉할 수 있다.
-⑤ 위원장은 선거관리위원회 위원 중에서 위원들의 투표로 선출한다.
-
-제71조(임기 및 자격상실 등) ① 선거관리위원회 위원의 임기는 선출 또는 위촉받은 날부터 2년으로 하되 연임할 수 있으며, 위원장의 임기는 그 위원의 임기가 만료되는 날까지로 한다.
-② 선거관리위원은 구분소유자 지위를 상실한 때 그 자격을 상실한다.
-③ 다음 각 호의 어느 하나에 해당하는 사람은 선거관리위원회 위원이 될 수 없다.
-    1. 제54조 각 호의 어느 하나에 해당하는 사람
-    2. 관리인, 부관리인, 관리위원 및 감사 본인이나 그 배우자, 직계존비속
-④ 선거관리위원회 위원은 관리인, 부관리인, 관리위원 및 감사를 겸직할 수 없다.
-
-제72조(업무) 선거관리위원회는 다음 각 호의 업무를 수행한다.
-    1. 선거관리규정의 제정·개정. 다만 관리위원회의 승인을 받아야 한다.
-    2. 관리인, 부관리인, 관리위원회 위원장, 관리위원 및 감사의 선출 및 해임에 관한 선거관리
-    3. 관리인, 부관리인, 관리위원회 위원장, 관리위원 및 감사의 법 또는 규약에서 정한 결격사유 유무 확인
-    4. 관리단집회의 결의를 투표의 방식으로 하는 경우 그 투·개표업무
-    5. 당선확인 및 당선증 교부
-    6. 관리인, 부관리인, 관리위원회 위원장, 관리위원 및 감사의 사퇴 접수·처리
-    7. 그 밖에 선거관리에 관한 업무
-
-제73조(운영 등) ① 위원장은 선거관리위원회를 대표하고, 그 업무를 총괄한다.
-② 위원장이 부득이한 사유로 직무를 수행할 수 없는 경우에는 위원 중 과반수 결의로 그 직무를 대행할 자를 선출한다.
-③ 위원이 궐위된 경우에는 60일 이내에 다시 선출 또는 위촉한다. 보궐위원의 임기는 전임자의 잔여임기로 한다.
-④ 위원장은 선거관리위원회의 회의에 관하여 회의록을 작성하고, 위원장 및 위원 2명 이상이 서명날인 한 후 관리인이 보관하도록 하여야 한다.
-⑤ 이해관계인은 관리인에게 서면으로 선거관리위원회 의사록의 열람을 청구하거나 자기 비용으로 등본의 발급을 청구할 수 있다.
-
-제74조(선거관리위원의 해임 등) ① 선거관리위원이 직무를 유기하거나 법령 및 규약을 위반한 경우, 구분소유자 10분의 1 이상이 발의하고 관리위원회의 결의로 해임할 수 있다.
-② 위원장은 정당한 사유 없이 3회 연속하여 회의에 출석하지 아니한 자를 해임할 수 있다.
+${_chapter8Body}
 
 ════════════════════════════════════════
 제9장 회계
@@ -2491,6 +2605,8 @@ document.getElementById('workStateFile').addEventListener('change',e=>{
   const file=e.target && e.target.files ? e.target.files[0] : null;
   importWorkStateFromFile(file);
 });
+document.getElementById('adminActionBtn').addEventListener('click',handleAdminAction);
+document.getElementById('adminPasswordInput').addEventListener('keydown',e=>{ if(e.key==='Enter') handleAdminAction(); });
 if(isAppExpired()){ showExpiryLock(); } else { requireLegalNoticeAck(); }
 </script>
 </body>
