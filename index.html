@@ -509,7 +509,7 @@ const WORK_STATE_VERSION='2026-05-28.v1';
 const SECTION_ARTICLES={
   s1:['제52조'], s2:['제63조'], s3:['제64조'], s4:['제57조'], s5:['제43조'], s6:['제44조'],
   s7:['제40조'], s8:['제41조'], s9:['제41조'], s10:['제42조'], s11:['제87조'], s12:['제84조'],
-  s13:['제38조'], s14:['제30조'], s15:['제34조'], s16:['제52조'], s17:['제64조'], s18:['제34조']
+  s13:['제38조'], s14:['제30조'], s15:['제34조'], s16:['제52조'], s17:['제64조'], s18:[]
 };
 let suspendArticleOverrides=false;
 let suspendChapterInsertions=false;
@@ -518,8 +518,7 @@ let lastSelectedSec=null;
 
 function renderSections(){
   const sw=document.getElementById('sections-wrap');
-  const visibleSections=SECTIONS.filter(sec=>sec.id!=='s18');
-  sw.innerHTML=visibleSections.map((sec,secIdx)=>{
+  sw.innerHTML=SECTIONS.map((sec,secIdx)=>{
     const selId=selections[sec.id]||null;
     const optBtns=sec.options.map(opt=>`
       <button class="ob${selId===opt.id?' sel':''}" data-sec="${sec.id}" data-opt="${opt.id}">
@@ -541,26 +540,10 @@ function renderSections(){
         </div>
         <div id="district-list" class="district-list"></div>
       </div>` : '';
-    const deputyRenameHtml = sec.id==='s15' ? (()=>{
-      const s18=SECTIONS.find(s=>s.id==='s18');
-      const s18Sel=selections['s18']||null;
-      const s18Btns=(s18&&s18.options?s18.options:[]).map(opt=>`
-        <button class="ob${s18Sel===opt.id?' sel':''}" data-sec="s18" data-opt="${opt.id}">
-          <div class="or"></div>
-          <div class="oc"><div class="ol-label">${opt.label}</div><div class="ol-note">${opt.note}</div></div>
-        </button>`).join('');
-      return `
-      <div class="extra-section" id="merged-s18-wrap" style="margin:8px 10px 8px;border:2.25px solid #d7e7ff;border-radius:8px;">
-        <div class="extra-title" style="color:#245ea9;">18. 부관리인 명칭 변경 <span style="background:#eef5ff;color:#245ea9;">15번에 통합</span></div>
-        <div class="extra-hint" style="margin-bottom:6px;font-size:10px;color:var(--muted);">15번 기관 및 임원 구성 안에서 부관리인 명칭을 함께 설정합니다.</div>
-        <div class="ol">${s18Btns}</div>
-      </div>`;
-    })() : '';
     return `<div class="sb" style="">
       <div class="sh"><div class="st">${secIdx+1}. ${sec.title}</div><span class="lt">${sec.law}</span></div>
       <div class="ol">${optBtns}</div>
       ${districtHtml}
-      ${deputyRenameHtml}
       <div class="section-article-slot" id="section-article-${sec.id}"></div>
     </div>`;
   }).join('');
