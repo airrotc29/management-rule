@@ -215,6 +215,18 @@ body.modal-open{overflow:hidden;}
 .admin-btn-ghost{border:1px solid #cbd5e1;background:#fff;color:#334155;font-size:13px;font-weight:700;padding:11px 18px;border-radius:10px;cursor:pointer;font-family:'Noto Sans KR',sans-serif;}
 .admin-btn-ghost:hover{background:#f1f5f9;}
 .admin-modal-actions{display:flex;justify-content:flex-end;gap:8px;padding:0 22px 22px;background:#fff;}
+.access-gate-backdrop{position:fixed;inset:0;background:var(--navy);background:linear-gradient(180deg,#1b2a4a 0%,#111c33 100%);display:flex;align-items:center;justify-content:center;padding:20px;z-index:4000;}
+.access-gate-backdrop[hidden]{display:none !important;}
+.access-gate-card{width:min(380px,100%);background:#fff;border-radius:18px;box-shadow:0 24px 70px rgba(0,0,0,.45);padding:32px 28px;text-align:center;font-family:'Noto Sans KR',sans-serif;}
+.access-gate-icon{font-size:32px;margin-bottom:10px;}
+.access-gate-title{font-size:17px;font-weight:800;color:var(--navy);margin-bottom:6px;font-family:'Nanum Myeongjo',serif;}
+.access-gate-sub{font-size:12px;color:#5b6b7f;margin-bottom:18px;line-height:1.6;}
+.access-gate-input{width:100%;border:1.5px solid var(--border);padding:12px 14px;font-size:16px;text-align:center;letter-spacing:2px;font-family:'Noto Sans KR',sans-serif;border-radius:10px;outline:none;background:var(--paper);color:var(--text);margin-bottom:10px;}
+.access-gate-input:focus{border-color:var(--navy);}
+.access-gate-error{font-size:12px;color:#c0392b;margin:-2px 0 10px;display:none;}
+.access-gate-error.show{display:block;}
+.access-gate-confirm{width:100%;border:none;background:linear-gradient(135deg,#1f5fbf 0%,#124a9c 100%);color:#fff;font-size:14px;font-weight:800;padding:12px 18px;border-radius:10px;cursor:pointer;box-shadow:0 8px 20px rgba(18,74,156,.22);font-family:'Noto Sans KR',sans-serif;}
+.access-gate-confirm:hover{filter:brightness(1.03);}
 .mob-tab-bar{display:none;}
 @media(max-width:680px){
   html,body{height:100%;overflow:hidden;}
@@ -357,6 +369,16 @@ body.modal-open{overflow:hidden;}
     </div>
   </div>
 </div>
+<div class="access-gate-backdrop" id="accessGate" role="dialog" aria-modal="true" aria-labelledby="accessGateTitle" hidden>
+  <div class="access-gate-card">
+    <div class="access-gate-icon">🔐</div>
+    <div class="access-gate-title" id="accessGateTitle">비밀번호를 입력하세요</div>
+    <p class="access-gate-sub">이 프로그램은 비밀번호를 아는 사람만 사용할 수 있습니다.</p>
+    <input type="password" id="accessGateInput" class="access-gate-input" placeholder="비밀번호" autocomplete="off" inputmode="numeric" />
+    <p class="access-gate-error" id="accessGateError">비밀번호가 올바르지 않습니다.</p>
+    <button type="button" class="access-gate-confirm" id="accessGateConfirmBtn">확인</button>
+  </div>
+</div>
 
 <script>
 const HANG=['①','②','③','④','⑤','⑥','⑦','⑧','⑨','⑩'];
@@ -364,6 +386,39 @@ const CLAUSE_MARKERS=['①','②','③','④','⑤','⑥','⑦','⑧','⑨','⑩
 function hangIdx(c){return HANG.indexOf(c);}
 function hangCh(n){return HANG[n]||String(n+1);}
 function escHtmlPreview(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+
+/* ── 접속 비밀번호 (배포 전 아래 값을 바꾸면 됩니다) ── */
+const ACCESS_PASSWORD='2392';
+let accessGranted=false;
+function requireAccessPassword(onSuccess){
+  const gate=document.getElementById('accessGate');
+  const input=document.getElementById('accessGateInput');
+  const err=document.getElementById('accessGateError');
+  const btn=document.getElementById('accessGateConfirmBtn');
+  if(accessGranted){ if(gate) gate.hidden=true; onSuccess(); return; }
+  if(!gate){ onSuccess(); return; }
+  gate.hidden=false;
+  document.body.classList.add('modal-open');
+  const attempt=()=>{
+    if((input.value||'')===ACCESS_PASSWORD){
+      accessGranted=true;
+      gate.hidden=true;
+      document.body.classList.remove('modal-open');
+      onSuccess();
+    } else {
+      err.classList.add('show');
+      input.value='';
+      input.focus();
+    }
+  };
+  if(!btn.dataset.bound){
+    btn.dataset.bound='y';
+    btn.addEventListener('click',attempt);
+    input.addEventListener('keydown',e=>{ if(e.key==='Enter') attempt(); });
+  }
+  err.classList.remove('show');
+  setTimeout(()=>{ try{ input.focus(); }catch(e){} },0);
+}
 
 /* ── 사용기간 제한 (관리자 전용) ──
    배포 전 이 날짜만 원하는 만료일로 수정한 뒤 파일을 전달하세요. (형식: YYYY-MM-DD) */
@@ -2811,7 +2866,7 @@ document.getElementById('workStateFile').addEventListener('change',e=>{
 });
 document.getElementById('adminActionBtn').addEventListener('click',handleAdminAction);
 document.getElementById('adminPasswordInput').addEventListener('keydown',e=>{ if(e.key==='Enter') handleAdminAction(); });
-if(isAppExpired()){ showExpiryLock(); } else { requireLegalNoticeAck(); }
+if(isAppExpired()){ showExpiryLock(); } else { requireAccessPassword(()=>{ requireLegalNoticeAck(); }); }
 </script>
 </body>
 </html>
