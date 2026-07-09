@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>집합건물 관리규약(관리위원회) 자동 생성기 v2</title>
 <link href="https://fonts.googleapis.com/css2?family=Nanum+Myeongjo:wght@400;700;800&family=Noto+Sans+KR:wght@300;400;500;700&display=swap" rel="stylesheet">
+<script src="vendor/pdfjs/pdf.min.js"></script>
 <style>
 :root{
   --navy:#1b2a4a;--navy2:#243659;--gold:#c9972b;--goldf:#f0d48a;
@@ -79,6 +80,18 @@ body{background:var(--paper);color:var(--text);font-family:'Noto Sans KR',sans-s
 .dot-sel{background:#eef4ff;border:2px solid #2d5cc8;}
 .dot-base{background:var(--white);border:1px solid var(--border);}
 /* 선거구 툴 */
+.upload-panel{margin:10px 10px 4px;padding:14px 14px 12px;border:1px solid #d9c2f0;border-radius:14px;background:linear-gradient(180deg,#faf7ff 0%,#f3ecff 100%);box-shadow:0 10px 24px rgba(107,56,165,.08), inset 0 1px 0 rgba(255,255,255,.9);}
+.upload-panel-title{font-size:14px;font-weight:800;color:#6b38a5;display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:4px;}
+.upload-panel-badge{font-size:9px;background:#efe4ff;color:#6b38a5;padding:2px 8px;border-radius:999px;font-weight:700;white-space:nowrap;}
+.upload-panel-sub{font-size:11px;color:#6b6478;line-height:1.6;margin-bottom:10px;}
+.upload-panel-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+.upload-panel-btn{display:inline-flex;align-items:center;padding:9px 14px;border:1px solid #6b38a5;background:#6b38a5;color:#fff;font-size:12px;font-weight:700;cursor:pointer;border-radius:10px;font-family:'Noto Sans KR',sans-serif;}
+.upload-panel-btn:hover{background:#5a2f8c;}
+.upload-panel-reset{padding:8px 12px;border:1px solid #b9a5cf;background:#fff;color:#6b38a5;font-size:11px;font-weight:700;cursor:pointer;border-radius:10px;font-family:'Noto Sans KR',sans-serif;}
+.upload-panel-reset:hover{background:#f3ecff;}
+.upload-panel-status{margin-top:10px;font-size:11px;color:#4a4458;line-height:1.7;white-space:pre-wrap;}
+.upload-panel-status.err{color:#c0392b;}
+.upload-panel-status ul{margin:4px 0 0 16px;padding:0;}
 .district-wrap{padding:10px 0 4px;}
 .district-panel{margin:6px 10px 10px;padding:14px 14px 12px;border:1px solid #cfe0ff;border-radius:14px;background:linear-gradient(180deg,#f8fbff 0%,#eef4ff 100%);box-shadow:0 10px 24px rgba(45,92,200,.08), inset 0 1px 0 rgba(255,255,255,.9);}
 .district-panel-head{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;margin-bottom:10px;}
@@ -256,6 +269,16 @@ body.modal-open{overflow:hidden;}
     </div>
     <div class="brow"><span class="blbl">건물명칭</span><input class="bi" id="building" placeholder="예: 에이스 아티스포럼"></div>
     <div class="adrow"><span class="blbl">소재지</span><input class="bi" id="addr" placeholder="예: 서울특별시 마포구 와우산로 94"></div>
+    <div class="upload-panel" id="uploadPanel">
+      <div class="upload-panel-title">📄 기존 관리규약으로 시작하기 <span class="upload-panel-badge">PDF 전용</span></div>
+      <div class="upload-panel-sub">기존에 쓰던 관리규약 PDF를 올리면 그 문서의 조문을 새 원문으로 삼고, 18개 항목의 선택값도 문구를 대조해 최대한 자동으로 맞춰봅니다. (자동 인식 결과는 한 번 확인해주세요.)</div>
+      <div class="upload-panel-row">
+        <label class="upload-panel-btn" for="uploadPdfInput" id="uploadPdfLabel">PDF 업로드</label>
+        <input type="file" id="uploadPdfInput" accept="application/pdf" style="display:none" />
+        <button type="button" class="upload-panel-reset" id="uploadResetBtn" style="display:none;">표준 규약으로 되돌리기</button>
+      </div>
+      <div class="upload-panel-status" id="uploadStatus"></div>
+    </div>
     <div class="sw" id="sw">
       <div id="sections-wrap"></div>
       <div class="article-edit-section" id="article-edit-wrap">
@@ -728,6 +751,7 @@ function renderSections(){
       const sec=btn.dataset.sec;
       selections[sec]=btn.dataset.opt;
       activateSectionContext(sec, getPrimaryArticleKeyForSec(sec));
+      releaseUploadedArticlesForSection(sec);
       clearSectionAutoOverrides(sec);
       syncManagedSharedOverride(sec);
       syncSectionOverrideSource(sec);
@@ -898,6 +922,194 @@ function getBaseArticleText(key){
 }
 function stripArticleHeading(text){
   return (text||'').replace(/^제\d+조(?:의\d+)?\([^)]+\)\s*/, '');
+}
+
+/* ── 기존 관리규약 업로드: 조문 원문 교체 ──
+   업로드된 문서의 조문이 있으면, 그 조문에 한해 표준 템플릿 대신 새 "원문"으로 사용한다.
+   제34조는 15번(기관·선거관리위원회)·18번(부관리인 명칭) 항목이 함께 관리하므로 대체 대상에서 제외한다. */
+let uploadedArticleMap=null;
+function applyUploadedArticleBase(text){
+  if(!uploadedArticleMap) return text;
+  const blocks=parseArticleBlocks(text);
+  if(!blocks.length) return text;
+  let out='', pos=0;
+  for(const block of blocks){
+    out+=text.slice(pos, block.start);
+    const uploaded = block.key==='제34조' ? null : uploadedArticleMap[block.key];
+    if(uploaded){
+      const heading=(block.raw.match(/^제\d+조(?:의\d+)?\([^)]+\)/)||[block.key])[0];
+      const originalSlice=text.slice(block.start,block.end);
+      const trailingGap=(originalSlice.match(/\n+\s*$/)||[''])[0];
+      out+=`${heading} ${uploaded}${trailingGap}`;
+    }else{
+      out+=text.slice(block.start,block.end);
+    }
+    pos=block.end;
+  }
+  out+=text.slice(pos);
+  return out;
+}
+function releaseUploadedArticlesForSection(sec){
+  if(!uploadedArticleMap) return;
+  (SECTION_ARTICLES[sec]||[]).forEach(key=>{ delete uploadedArticleMap[key]; });
+}
+
+/* ── PDF 텍스트 추출 (pdf.js, GitHub Pages 배포본에서만 vendor/pdfjs 파일이 존재) ── */
+async function extractPdfText(file){
+  if(!window.pdfjsLib) throw new Error('PDF 라이브러리를 불러오지 못했습니다. 이 기능은 GitHub Pages로 배포된 버전에서만 사용할 수 있습니다.');
+  if(!pdfjsLib.GlobalWorkerOptions.workerSrc) pdfjsLib.GlobalWorkerOptions.workerSrc='vendor/pdfjs/pdf.worker.min.js';
+  const buf=await file.arrayBuffer();
+  const pdf=await pdfjsLib.getDocument({data:buf}).promise;
+  let fullText='';
+  for(let p=1;p<=pdf.numPages;p++){
+    const page=await pdf.getPage(p);
+    const content=await page.getTextContent();
+    fullText+=reconstructPageText(content.items)+'\n';
+  }
+  return fullText;
+}
+function reconstructPageText(items){
+  const lines=[];
+  const yTol=4;
+  (items||[]).forEach(it=>{
+    if(!it.str) return;
+    const x=it.transform[4], y=it.transform[5];
+    const h=it.height||Math.abs(it.transform[3])||10;
+    let line=lines.find(l=>Math.abs(l.y-y)<yTol);
+    if(!line){ line={y,h,items:[]}; lines.push(line); }
+    line.items.push({x, str:it.str, w:it.width||0});
+  });
+  lines.sort((a,b)=>b.y-a.y);
+  return lines.map(l=>{
+    l.items.sort((a,b)=>a.x-b.x);
+    let out='', lastEnd=null;
+    l.items.forEach(i=>{
+      if(lastEnd!==null && (i.x-lastEnd)>(l.h||10)*0.3) out+=' ';
+      out+=i.str;
+      lastEnd=i.x+i.w;
+    });
+    return out.trimEnd();
+  }).join('\n');
+}
+function normalizeUploadedText(text){
+  return (text||'')
+    .split('\n')
+    .filter(line=>{
+      const t=line.trim();
+      if(/^-?\s*\d+\s*-?$/.test(t)) return false; // 페이지 번호만 있는 줄
+      if(/^[【\[].*[】\]]$/.test(t)) return false; // "【① 대안】" 같은 선택지 안내 표시줄(표준 서식 원본에만 있는 문구)
+      if(/^※.*(대안|선택)/.test(t)) return false; // "※ ...대안을 선택해 주세요" 안내줄
+      return true;
+    })
+    .join('\n')
+    .replace(/[ \t]+/g,' ')
+    .replace(/\n{3,}/g,'\n\n');
+}
+
+/* ── 업로드 문서 기준 항목 자동 인식 (표준 문구 후보와의 유사도 비교, 확정이 아닌 참고용) ── */
+function normalizeForCompare(s){
+  return (s||'').replace(/\s+/g,'').trim();
+}
+function textBigrams(s){
+  const set=new Set();
+  for(let i=0;i<s.length-1;i++) set.add(s.slice(i,i+2));
+  return set;
+}
+function textSimilarityScore(a,b){
+  const na=normalizeForCompare(a), nb=normalizeForCompare(b);
+  if(!na||!nb) return 0;
+  if(na===nb) return 1;
+  const ba=textBigrams(na), bb=textBigrams(nb);
+  let inter=0;
+  ba.forEach(g=>{ if(bb.has(g)) inter++; });
+  const union=ba.size+bb.size-inter;
+  return union?inter/union:0;
+}
+function autoDetectSelections(){
+  if(!uploadedArticleMap) return 0;
+  const uploadedSnapshot=uploadedArticleMap;
+  const savedSelections=clonePlain(selections);
+  let count=0;
+  try{
+    uploadedArticleMap=null;
+    SECTIONS.forEach(sec=>{
+      if(!sec.options || !sec.options.length) return;
+      const key=getPrimaryArticleKeyForSec(sec.id);
+      if(!key) return;
+      const uploadedText=uploadedSnapshot[key];
+      if(!uploadedText) return;
+      let bestOpt=null, bestScore=-1;
+      sec.options.forEach(opt=>{
+        restorePlainObject(selections, savedSelections);
+        selections[sec.id]=opt.id;
+        const candidate=stripArticleHeading(getBaseArticleText(key)).trim();
+        const score=textSimilarityScore(candidate, uploadedText);
+        if(score>bestScore){ bestScore=score; bestOpt=opt.id; }
+      });
+      if(bestOpt && bestScore>=0.55){
+        savedSelections[sec.id]=bestOpt;
+        count++;
+      }
+    });
+  }finally{
+    uploadedArticleMap=uploadedSnapshot;
+    restorePlainObject(selections, savedSelections);
+  }
+  return count;
+}
+
+/* ── 업로드 처리 진입점 ── */
+async function handlePdfUpload(file){
+  const statusEl=document.getElementById('uploadStatus');
+  const resetBtn=document.getElementById('uploadResetBtn');
+  if(!statusEl) return;
+  statusEl.classList.remove('err');
+  statusEl.textContent='처리 중입니다...';
+  try{
+    const rawText=await extractPdfText(file);
+    const normalized=normalizeUploadedText(rawText);
+    const blocks=parseArticleBlocks(normalized);
+    if(!blocks.length) throw new Error('문서에서 "제○조(...)" 형식의 조문을 찾지 못했습니다. 글자 인식이 되지 않는 스캔 이미지 PDF는 지원하지 않습니다.');
+    const map={};
+    blocks.forEach(b=>{ map[b.key]=stripArticleHeading(b.raw).trim(); });
+    uploadedArticleMap=map;
+
+    const pristineKeys=Object.keys(getPristineArticleBaseMap());
+    const matchedKeys=pristineKeys.filter(k=>map[k]);
+    const missingKeys=pristineKeys.filter(k=>!map[k]).sort((a,b)=>{
+      const aa=articleSortTuple(a), bb=articleSortTuple(b);
+      return aa[0]-bb[0]||aa[1]-bb[1];
+    });
+    const extraKeys=Object.keys(map).filter(k=>!pristineKeys.includes(k));
+
+    const detectedCount=autoDetectSelections();
+
+    rerenderSectionsAndPreview();
+    if(resetBtn) resetBtn.style.display='inline-flex';
+
+    let msg=`✔ 조문 ${matchedKeys.length}개를 인식해 새 원문으로 반영했습니다.\n✔ 항목 ${detectedCount}개의 선택값을 자동으로 맞췄습니다 — 반드시 결과를 확인해주세요.`;
+    if(missingKeys.length){
+      msg+=`\n\n⚠ 다음 ${missingKeys.length}개 조문은 문서에서 찾지 못해 표준 문구를 그대로 사용합니다:\n`+missingKeys.join(', ');
+    }
+    if(extraKeys.length){
+      msg+=`\n\n⚠ 다음 조문 번호는 표준 규약에 없어 반영하지 않았습니다(문서 구조가 다르거나 추가 조문일 수 있습니다. 필요하면 "추가 조항 직접 입력"을 이용해주세요):\n`+extraKeys.join(', ');
+    }
+    statusEl.textContent=msg;
+  }catch(err){
+    statusEl.classList.add('err');
+    statusEl.textContent='⚠ 업로드 처리 중 오류: '+err.message;
+    uploadedArticleMap=null;
+  }
+}
+function resetToStandardKyuryak(){
+  uploadedArticleMap=null;
+  const statusEl=document.getElementById('uploadStatus');
+  const resetBtn=document.getElementById('uploadResetBtn');
+  const fileInput=document.getElementById('uploadPdfInput');
+  if(statusEl){ statusEl.classList.remove('err'); statusEl.textContent='표준 규약 원문으로 되돌렸습니다.'; }
+  if(resetBtn) resetBtn.style.display='none';
+  if(fileInput) fileInput.value='';
+  rerenderSectionsAndPreview();
 }
 let pristineArticleBaseCache=null;
 function clonePlain(v){
@@ -2452,7 +2664,7 @@ ${_appendix}
 ════════════════════════════════════════════════════
 ${summary||'  (아직 선택된 항목이 없습니다)'}
 `);
-  return applyArticleOverrides(applyChapterInsertions(finalText));
+  return applyArticleOverrides(applyChapterInsertions(applyUploadedArticleBase(finalText)));
 }
 
 /* ── renderPreview ── */
@@ -2866,6 +3078,22 @@ document.getElementById('workStateFile').addEventListener('change',e=>{
 });
 document.getElementById('adminActionBtn').addEventListener('click',handleAdminAction);
 document.getElementById('adminPasswordInput').addEventListener('keydown',e=>{ if(e.key==='Enter') handleAdminAction(); });
+(function initUploadPanel(){
+  const input=document.getElementById('uploadPdfInput');
+  const label=document.getElementById('uploadPdfLabel');
+  const statusEl=document.getElementById('uploadStatus');
+  const resetBtn=document.getElementById('uploadResetBtn');
+  if(!window.pdfjsLib){
+    if(label){ label.textContent='PDF 업로드 (이 배포본에서는 사용 불가)'; label.style.opacity='.55'; label.style.cursor='not-allowed'; label.setAttribute('for',''); }
+    if(statusEl){ statusEl.classList.add('err'); statusEl.textContent='이 기능은 GitHub Pages로 배포된 버전에서만 사용할 수 있습니다.'; }
+    return;
+  }
+  if(input) input.addEventListener('change', e=>{
+    const file=e.target && e.target.files ? e.target.files[0] : null;
+    if(file) handlePdfUpload(file);
+  });
+  if(resetBtn) resetBtn.addEventListener('click', resetToStandardKyuryak);
+})();
 if(isAppExpired()){ showExpiryLock(); } else { requireAccessPassword(()=>{ requireLegalNoticeAck(); }); }
 </script>
 </body>
